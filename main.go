@@ -2,8 +2,11 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"sort"
+	"strconv"
+	"strings"
 
 	flag "github.com/spf13/pflag"
 )
@@ -14,9 +17,9 @@ type config struct {
 	workers  int
 }
 
-func worker(ports <-chan int, results chan<- int) {
+func worker(ports <-chan int, results chan<- int, hostname string) {
 	for p := range ports {
-		addr := fmt.Sprintf("scanme.nmap.org:%d", p)
+		addr := fmt.Sprintf("%s:%d", hostname, p)
 		conn, err := net.Dial("tcp", addr)
 		if err != nil {
 			results <- 0
@@ -34,21 +37,35 @@ func main() {
 	flag.IntVarP(&cfg.workers, "workers", "w", 100, "number of workers in the worker pool")
 	flag.Parse()
 
-	ports := make(chan int, 100)
+	if cfg.hostname == "" || cfg.ports == "" {
+		log.Fatalln("Please specify additional flags")
+	}
+
+	firstPort, err := strconv.Atoi(strings.Split(cfg.ports, "-")[0])
+	if err != nil {
+		log.Fatalln("Wrong flag format")
+	}
+
+	lastPort, err := strconv.Atoi(strings.Split(cfg.ports, "-")[1])
+	if err != nil {
+		log.Fatalln("Wrong flag format")
+	}
+
+	ports := make(chan int, cfg.workers)
 	results := make(chan int)
 	var openports []int
 
 	for i := 0; i < cap(ports); i++ {
-		go worker(ports, results)
+		go worker(ports, results, cfg.hostname)
 	}
 
 	go func() {
-		for i := 1; i <= 1024; i++ {
+		for i := firstPort; i <= lastPort; i++ {
 			ports <- i
 		}
 	}()
 
-	for i := 0; i < 1024; i++ {
+	for i := firstPort; i <= lastPort; i++ {
 		port := <-results
 		if port != 0 {
 			openports = append(openports, port)
